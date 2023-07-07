@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Solicitação de Inserção de Arquivo Excel</title>
+</head>
+<body>
+<h1>Solicitação de Inserção de Arquivo Excel</h1>
+
+<form action="api/upload" method="post" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".xls, .xlsx" required/>
+    <br><br>
+    <button type="submit">Enviar</button>
+</form>
+</body>
+</html>

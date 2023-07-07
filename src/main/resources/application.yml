@@ -1,0 +1,10 @@
+spring:
+  data:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/pricing-see
+    username: aplicacao
+    password: aplicacao01
+
+  jpa:
+    hibernate:
+      ddl-auto: update
