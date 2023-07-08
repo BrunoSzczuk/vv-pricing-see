@@ -1,8 +1,11 @@
 package br.com.brunoszczuk.vvpricingsee
 
+import br.com.brunoszczuk.vvpricingsee.dto.LinhaPlanilhaPreco
+import br.com.brunoszczuk.vvpricingsee.dto.PlanilhaPreco
+import br.com.brunoszczuk.vvpricingsee.service.ValidadorDeLinhaExecutor
 import org.apache.poi.ss.usermodel.Cell
 import org.apache.poi.ss.usermodel.CellType
-import org.apache.poi.ss.util.CellRangeAddress
+import org.apache.poi.ss.usermodel.Sheet
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import org.springframework.core.io.ByteArrayResource
 import org.springframework.core.io.Resource
@@ -11,7 +14,7 @@ import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import java.io.ByteArrayOutputStream
-import java.util.UUID
+import java.util.*
 
 @Controller
 @RequestMapping("/")
@@ -27,61 +30,16 @@ class HomeEndpoint {
 
 @RestController
 @RequestMapping("/api")
-class ResourceEndpoint(private val fileRepository: FileRepository) {
+class ResourceEndpoint(
+    private val fileRepository: FileRepository,
+    private val validadorDeLinhaExecutor: ValidadorDeLinhaExecutor
+) {
 
     @PostMapping("/upload")
     fun handleFileUpload(@RequestPart("file") file: MultipartFile): ResponseEntity<Resource> {
         val workbook = XSSFWorkbook(file.inputStream.buffered())
-        val sheet = workbook.getSheetAt(0) // Primeira planilha
-        val style = workbook.createCellStyle().apply {
-            wrapText = true
-        }
-        for (i in 3..sheet.lastRowNum) {
-            val row = sheet.getRow(i)
-            val linha = LinhaDaPlanilha(
-                empresa = getValueAsString(row.getCell(0)),
-                bandeira = getValueAsString(row.getCell(1)),
-                canal = getValueAsString(row.getCell(2)),
-                prestadora = getValueAsString(row.getCell(3)),
-                numCategoria = getValueAsString(row.getCell(4)),
-                produtos = getValueAsString(row.getCell(5)),
-                faixaInicial = getValueAsString(row.getCell(6)),
-                faixaFinal = getValueAsString(row.getCell(7)),
-                codigoFaixa = getValueAsString(row.getCell(8)),
-                cobertura = getValueAsString(row.getCell(9)),
-                deTaxaCliente = getValueAsString(row.getCell(10)),
-                deTaxaPrestadora = getValueAsString(row.getCell(11)),
-                deValorPrestadora = getValueAsString(row.getCell(12)),
-                paraTaxaCliente = getValueAsString(row.getCell(13)),
-                paraTaxaPrestadora = getValueAsString(row.getCell(14)),
-                paraValorPrestadora = getValueAsString(row.getCell(15)),
-                ocorrencias = ""
-            )
-
-            if (linha.empresa.isBlank()) {
-                linha.ocorrencias += "Empresa não pode estar em branco.\n"
-            }
-            if (linha.bandeira.isBlank()) {
-                linha.ocorrencias += "Bandeira não pode estar em branco.\n"
-            }
-            if (linha.canal.isBlank()) {
-                linha.ocorrencias += "Canal não pode estar em branco.\n"
-            }
-
-            val ocorrenciasCell = row.createCell(16)
-            ocorrenciasCell.setCellValue(linha.ocorrencias)
-            ocorrenciasCell.cellStyle = style
-            if (linha.ocorrencias.isNotBlank()) {
-                ocorrenciasCell.row.height = -1;
-            }
-
-        }
-        sheet.setColumnWidth(16, 100 * 256)
-
-        val autoFilter = sheet.ctWorksheet.autoFilter
-        autoFilter.ref = CellRangeAddress(2, sheet.lastRowNum, 0, 16).formatAsString()
-        //filtrar por ocorrencias não vazias
-        //autoFilter.
+        val sheet = workbook.first()
+        val planilhaPreco = carregaDadosDaPlanilha(sheet)
 
 
         val outputStream = ByteArrayOutputStream()
@@ -95,6 +53,44 @@ class ResourceEndpoint(private val fileRepository: FileRepository) {
         return ResponseEntity.ok()
             .header("Content-Disposition", "attachment; filename=planilha_modificada.xlsx")
             .body(resource)
+    }
+
+    private fun carregaDadosDaPlanilha(sheet: Sheet): PlanilhaPreco {
+        val linhas = mutableListOf<LinhaPlanilhaPreco>()
+        for (i in PlanilhaPreco.INDICE_INICIAL_DADOS..sheet.lastRowNum) {
+            val row = sheet.getRow(i)
+            val ocorrenciasCell = row.createCell(LinhaPlanilhaPreco.COLUNA_OCORRENCIAS)
+            ocorrenciasCell.cellStyle.wrapText = true
+            try {
+                val linha = LinhaPlanilhaPreco(
+                    empresa = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_EMPRESA)),
+                    bandeira = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_BANDEIRA)),
+                    canal = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_CANAL)),
+                    prestadora = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_PRESTADORA)),
+                    numCategoria = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_NUM_CATEGORIA)),
+                    produtos = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_PRODUTOS)),
+                    faixaInicial = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_FAIXA_INICIAL)).toBigDecimal(),
+                    faixaFinal = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_FAIXA_FINAL)).toBigDecimal(),
+                    codigoFaixa = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_CODIGO_FAIXA)),
+                    cobertura = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_COBERTURA)).toBigDecimal().toInt(),
+                    deTaxaCliente = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_DE_TAXA_CLIENTE)).toBigDecimal(),
+                    deTaxaPrestadora = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_DE_TAXA_PRESTADORA)).toBigDecimal(),
+                    deValorPrestadora = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_DE_VALOR_PRESTADORA)).toBigDecimal(),
+                    paraTaxaCliente = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_PARA_TAXA_CLIENTE)).toBigDecimal(),
+                    paraTaxaPrestadora = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_PARA_TAXA_PRESTADORA)).toBigDecimal(),
+                    paraValorPrestadora = getValueAsString(row.getCell(LinhaPlanilhaPreco.COLUNA_PARA_VALOR_PRESTADORA)).toBigDecimal()
+                )
+                linha.ocorrencias = validadorDeLinhaExecutor.validar(linha).joinToString(separator = "\n")
+                linhas.add(linha)
+                ocorrenciasCell.setCellValue(linha.ocorrencias)
+            } catch (e: NumberFormatException) {
+                e.printStackTrace()
+                ocorrenciasCell.setCellValue("Erro de em algum campo numérico. Verifique os valores informados.")
+            }
+            ocorrenciasCell.row.height = -1
+        }
+        sheet.setColumnWidth(LinhaPlanilhaPreco.COLUNA_OCORRENCIAS, 100 * 256)
+        return PlanilhaPreco(linhas = linhas, sheet = sheet)
     }
 
     @GetMapping("/download/{id}")
@@ -114,32 +110,18 @@ class ResourceEndpoint(private val fileRepository: FileRepository) {
         if (cell == null) return ""
         return when (cell.cellType) {
             CellType.STRING -> cell.stringCellValue
-            CellType.NUMERIC -> cell.numericCellValue.toString()
             CellType.BOOLEAN -> cell.booleanCellValue.toString()
+            CellType.NUMERIC -> cell.numericCellValue.toString().onlyNumbers()
             else -> ""
         }
     }
 }
 
+private fun String.onlyNumbers(): String {
+    return this.replace("[^-\\d.]".toRegex(), "")
+}
 
-data class LinhaDaPlanilha(
-    var empresa: String = "",
-    var bandeira: String = "",
-    var canal: String = "",
-    var prestadora: String = "",
-    var numCategoria: String = "",
-    var produtos: String = "",
-    var faixaInicial: String = "",
-    var faixaFinal: String = "",
-    var codigoFaixa: String = "",
-    var cobertura: String = "",
-    var deTaxaCliente: String = "",
-    var deTaxaPrestadora: String = "",
-    var deValorPrestadora: String = "",
-    var paraTaxaCliente: String = "",
-    var paraTaxaPrestadora: String = "",
-    var paraValorPrestadora: String = "",
-    var ocorrencias: String = ""
-)
+
+
 
 
